@@ -17,7 +17,15 @@
  */
 /** 第一版监听清单：纯 emit 事件（观察零副作用）。每个条目 [事件名, 模式] */
 export declare const WATCHED_EVENTS: ReadonlyArray<readonly [string, string]>;
-/** 第二版增强：waterfall 事件。加入前先读声明位置源码确认签名，并遵守 next() 纪律。 */
+/**
+ * 第二版增强：waterfall 事件（v0.2 启用）。
+ * 签名纪律（已从源码逐条确认，2026-08-14）：
+ *  - tools/pre-execute(exec, next)、tools/execute(exec, next)、tools/post-execute(exec, result, next)
+ *  - agent/request(payload, next)、agent/pre-step(payload, next)
+ *  - approval/request(req, next)、fs/write-intent(target, actor, next)、fs/edit-intent(target, actor, next)
+ *  - system-prompt/assemble(assembly, context, next)、llm/stream(options, next)
+ *  共同点：next 永远无参；只观察的监听器必须调用 next() 并透传返回值。
+ */
 export declare const ENHANCED_WATERFALL_EVENTS: ReadonlyArray<readonly [string, string]>;
 /** 分组 → 事件名集合（与 Config.groups 键对应） */
 export declare const EVENT_GROUPS: Record<string, ReadonlySet<string>>;
