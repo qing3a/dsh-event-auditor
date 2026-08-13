@@ -37,9 +37,17 @@ pnpm install --frozen-lockfile
 pnpm run build:lib:host && pnpm run build:lib:client
 pnpm --filter @deepseek-ai/dsh-web-frontend run build   # web profile 需要 dist
 pnpm dsh plugin --profile web add link:<本插件绝对路径>
+pnpm dsh plugin --profile headless add link:<本插件绝对路径>   # headless 也装
 pnpm dsh --profile web     # 启动后 dsh web: http://127.0.0.1:3080
 curl http://127.0.0.1:3080/api/audit/events   # → 200，含 tools/change 等事件计数
+curl http://127.0.0.1:3080/audit              # → 200，静态面板页
 curl -X POST http://127.0.0.1:3080/api/audit/reset  # → {"ok":true}
+
+# waterfall 运行时捕获（无需真实 key）：mock-llm + headless
+pnpm run mock:llm --port 8000 --api-key mock-key --sequence tool_call_success,success --repeat-last --tool-name bash --tool-arguments '{"command":"ls"}'
+DEEPSEEK_BASE_URL=http://127.0.0.1:8000/v1 DEEPSEEK_API_KEY=mock-key \
+DSH_EVENT_AUDIT_DUMP=/tmp/audit.json pnpm dsh --profile headless "run the bash tool once"
+# → audit.json 含 74 事件/12 waterfall（system-prompt/assemble→agent/pre-step→agent/request→llm/stream→tools/pre-execute→execute→post-execute）
 ```
 
-验证结果：插件激活、监听 57 次 `tools/change`、GET/POST 接口均 200。
+验证结果：web 端事件捕获/页面/接口全通；headless 端 waterfall 完整捕获且 agent 循环正常（next() 透传零副作用实证）。
