@@ -1,0 +1,21 @@
+/**
+ * HTTP 路由：/api/audit/events 与 /api/audit/reset。
+ *
+ * 运行时服务：ctx.webServer（dsh-host-webserver）。⚠️ 注意 API 漂移：
+ *  - master 源码：类 WebServer，服务名 ctx.webServer
+ *  - npm rc 版（0.0.1-rc.1）：类 HttpServerService，服务名 ctx.httpServer
+ * 本插件用鸭子类型接口（register 签名两者一致），类型不绑定具体类名，
+ * 运行时跟随实际安装（profile 链接到本地源码时是 webServer）。
+ */
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuditorService } from './auditor.js';
+/** 与 dsh-host-webserver register 签名兼容的最小接口（避免 rc/master 漂移）。 */
+export interface RouteRegistrar {
+    register(route: {
+        kind: 'exact' | 'prefix';
+        path: string;
+        handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+    }): () => void;
+}
+/** 注册审计路由，返回总 disposer（卸载全部路由）。 */
+export declare function registerAuditRoutes(webServer: RouteRegistrar, auditor: AuditorService): () => void;
