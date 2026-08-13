@@ -140,8 +140,14 @@ dsh --profile <your-profile>
 
 1. **事件 listener 签名**：agent/* 是单 payload（`'agent/status'(payload: {agent, status}): void`，`this: Scoped<Agent>`）；tools/result 是双参数 `(exec, result)`——万能观察者 `(...args)` 正确。
 2. **`webServer.register` 签名**：`register(route: {kind, path, handler: (req,res)=>void|Promise<void>}): () => void`，返回 disposer，放入 `ctx.effect` 即自动清理。
-3. **静态 HTML 挂载**：未接入 `/audit` 页面（v0.1 只做 JSON 接口，curl 验证通过）；页面留待 v0.3 dsh.client 方案。
+3. **静态 HTML 挂载**：v0.2 已接入 `/audit` 页面（HTTP 200，3558 字节），从 `lib/` 相对解析 `src/client/index.html`。
 4. **`dsh plugin add link:`**：验证通过，reconcile 自动加入 bundle 栈。
+
+✅ **v0.2 验证（2026-08-14）**：
+- 10 个 waterfall 事件签名逐条从源码确认（next 均无参）：`tools/pre-execute|execute|post-execute`、`agent/request`、`approval/request`、`fs/write-intent|edit-intent`、`system-prompt/assemble`、`agent/pre-step`、`llm/stream`
+- 插件加载 + 10 个 waterfall 监听器注册后，**DSH 完整启动、首页 200**——启动路径上的 waterfall 均正常透传，next() 纪律安全性验证通过
+- `/audit` 页面 200、`/api/audit/events` 200（捕获 57 次 `tools/change`）、reset 200
+- ⏳ **待验证**：waterfall 事件的**运行时捕获**（`tools/execute` 等在 agent 对话时才触发）——需要真实 LLM 对话（DEEPSEEK_API_KEY）或 mock-llm 链路，当前环境无 key 未触发
 
 ⚠️ **重大教训——API 漂移**：npm rc 版（0.0.1-rc.1）`ctx.httpServer`/`HttpServerService` vs master 源码 `ctx.webServer`/`WebServer`。profile 从本地 workspace 链接时**运行 master 语义**。插件改为鸭子类型接口（`RouteRegistrar`）解耦类名，仅跟随服务名。遇到疑似漂移，先读实际运行版本的 `lib/types/`。
 
