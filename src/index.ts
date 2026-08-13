@@ -2,9 +2,9 @@
  * dsh-event-auditor 入口：apply 风格 cordis 插件。
  *
  * 已按实际运行环境核实的 API：
- *  - 依赖注入：ctx.webServer（dsh-host-webserver，master 语义）。
- *    ⚠️ npm rc 版服务名是 httpServer，有漂移；profile 链接本地源码时用 webServer。
+ *  - webServer（可选，ctx.get 判空）：headless 无此服务时跳过路由
  *  - schemastery：@deepseek-ai/schemastery 默认导入
+ *  - settings（可选）：installSettingsSection 接入热改（v0.3）
  *  - ctx.effect / ctx.on：cordis 4（事件监听随插件卸载自动清理）
  *
  * 事件监听用万能观察者（转义类型），因为各事件参数形态不统一
@@ -12,6 +12,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 
 import { AuditorService } from './auditor.js'
@@ -20,8 +21,8 @@ import { registerAuditRoutes, type RouteRegistrar } from './routes.js'
 
 export const name = 'event-auditor'
 
-/** 依赖注入：webServer（路由注册）。settings 留待 v0.3 接入热改。 */
-export const inject = ['webServer']
+/** 依赖注入：全部可选（webServer/settings 用 ctx.get 判空）。 */
+export const inject: string[] = []
 
 export interface Config {
   enabled: boolean
@@ -50,6 +51,23 @@ export const Config: z<Config> = z.object({
     waterfall: z.boolean().default(true),
   }),
 })
+
+/** 归一化配置（合并默认值）。 */
+function resolveConfig(config?: Config): Config {
+  return {
+    enabled: config?.enabled ?? true,
+    bufferSize: config?.bufferSize ?? 500,
+    truncateAt: config?.truncateAt ?? 4096,
+    groups: {
+      agent: config?.groups?.agent ?? true,
+      session: config?.groups?.session ?? true,
+      tools: config?.groups?.tools ?? true,
+      subagent: config?.groups?.subagent ?? true,
+      config: config?.groups?.config ?? false,
+      waterfall: config?.groups?.waterfall ?? true,
+    },
+  }
+}
 
 /**
  * 万能观察者（emit 事件）：任意事件名的宽松监听器，观察零副作用。
@@ -84,58 +102,104 @@ function watchWaterfall(
   })
 }
 
-export function apply(ctx: Context, config?: Config): void {
-  const resolved: Config = {
-    enabled: config?.enabled ?? true,
-    bufferSize: config?.bufferSize ?? 500,
-    truncateAt: config?.truncateAt ?? 4096,
-    groups: {
-      agent: config?.groups?.agent ?? true,
-      session: config?.groups?.session ?? true,
-      tools: config?.groups?.tools ?? true,
-      subagent: config?.groups?.subagent ?? true,
-      config: config?.groups?.config ?? false,
-      waterfall: config?.groups?.waterfall ?? true,
-    },
-  }
+/**
+ * 按当前分组开关挂载全部监听，返回总 disposer（热改重建用）。
+ * 分组开关通过 thunk 实时读取，dispose 后按新配置重建。
+ */
+function mountListeners(
+  ctx: Context,
+  auditor: AuditorService,
+  getGroups: () => Config['groups'],
+): () => void {
+  const disposers: (() => void)[] = []
+  const groups = getGroups()
 
-  if (!resolved.enabled) return
-
-  const auditor = new AuditorService({
-    bufferSize: resolved.bufferSize,
-    truncateAt: resolved.truncateAt,
-  })
-
-  // 按分组开关注册监听。emit 事件观察零副作用。
   for (const [eventName, mode] of WATCHED_EVENTS) {
     const group = Object.keys(EVENT_GROUPS).find((g) => EVENT_GROUPS[g].has(eventName))
-    if (group && !resolved.groups[group as keyof Config['groups']]) continue
-    ctx.effect(
-      () =>
-        watch(ctx, eventName, (...args: unknown[]) => {
-          auditor.record(eventName, mode, args)
-        }),
-      `event-auditor: watch ${eventName}`,
+    if (group && !groups[group as keyof Config['groups']]) continue
+    disposers.push(
+      watch(ctx, eventName, (...args: unknown[]) => {
+        auditor.record(eventName, mode, args)
+      }),
     )
   }
 
-  // waterfall 组（v0.2）：观察 + 必须 next() 透传，保证零副作用。
-  if (resolved.groups.waterfall) {
+  if (groups.waterfall) {
     for (const [eventName, mode] of ENHANCED_WATERFALL_EVENTS) {
-      ctx.effect(
-        () =>
-          watchWaterfall(ctx, eventName, (...args: unknown[]) => {
-            auditor.record(eventName, mode, args)
-          }),
-        `event-auditor: watch ${eventName}`,
+      disposers.push(
+        watchWaterfall(ctx, eventName, (...args: unknown[]) => {
+          auditor.record(eventName, mode, args)
+        }),
       )
     }
   }
 
-  // HTTP 接口（register 返回 disposer，effect 负责卸载）
-  const webServer = (ctx as unknown as { webServer: RouteRegistrar }).webServer
-  ctx.effect(
-    () => registerAuditRoutes(webServer, auditor),
-    'event-auditor: routes',
+  return () => {
+    for (const dispose of disposers) dispose()
+  }
+}
+
+export function apply(ctx: Context, config?: Config): void {
+  const initial = resolveConfig(config)
+  if (!initial.enabled) return
+
+  const auditor = new AuditorService({
+    bufferSize: initial.bufferSize,
+    truncateAt: initial.truncateAt,
+  })
+
+  // 可变配置持有器：settings 热改时更新，监听按最新值重建
+  let active = initial
+
+  // 监听挂载（effect 包裹，卸载时自动清理；热改时手动 dispose 后重建）
+  let unmount = () => {}
+  ctx.effect(() => {
+    unmount = mountListeners(ctx, auditor, () => active.groups)
+    return () => unmount()
+  }, 'event-auditor: listeners')
+
+  // HTTP 接口（register 返回 disposer）。webServer 可选：用 ctx.inject 动态注入
+  // （与 installSettingsSection 同模式），web profile 有 webServer 时注册路由，
+  // headless 无 webServer 时回调不执行（不阻塞插件加载）。
+  ctx.inject(['webServer'], (sctx) => {
+    const ws = (sctx as unknown as { webServer: RouteRegistrar }).webServer
+    sctx.effect(
+      () => registerAuditRoutes(ws, auditor),
+      'event-auditor: routes',
+    )
+  })
+
+  // settings 热改（可选）：无 settings 服务时 installSettingsSection 内部安全跳过。
+  // onChange 时重读解析值，更新活动配置并重建监听（bufferSize/truncateAt 变更需重建 auditor）。
+  installSettingsSection<Config>(
+    ctx,
+    settingsNamespace('event-auditor'),
+    Config,
+    initial,
+    {
+      setSource(current) {
+        // 更新 buffer/truncate 与监听（source 变更或变更提交时调用）
+        const next = resolveConfig(current())
+        if (
+          next.bufferSize !== active.bufferSize ||
+          next.truncateAt !== active.truncateAt ||
+          next.groups !== active.groups
+        ) {
+          active = next
+        }
+      },
+      onChange() {
+        unmount()
+        unmount = mountListeners(ctx, auditor, () => active.groups)
+      },
+    },
   )
+
+  // headless dump：DSH_EVENT_AUDIT_DUMP=<path> 时进程退出前写快照
+  const dumpPath = process.env.DSH_EVENT_AUDIT_DUMP
+  if (dumpPath !== undefined && dumpPath.length > 0) {
+    process.on('exit', () => {
+      auditor.dumpToFile(dumpPath)
+    })
+  }
 }
