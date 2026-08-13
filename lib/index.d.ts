@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 export declare const name = "event-auditor";
-/** 依赖注入：webServer（路由注册）。settings 留待 v0.2 接入热改。 */
+/** 依赖注入：webServer（路由注册）。settings 留待 v0.3 接入热改。 */
 export declare const inject: string[];
 export interface Config {
     enabled: boolean;
@@ -25,6 +25,7 @@ export interface Config {
         tools: boolean;
         subagent: boolean;
         config: boolean;
+        waterfall: boolean;
     };
 }
 export declare const Config: z<Config>;
