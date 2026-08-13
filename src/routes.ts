@@ -8,6 +8,7 @@
  * 运行时跟随实际安装（profile 链接到本地源码时是 webServer）。
  */
 
+import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { AuditorService } from './auditor.js'
@@ -28,7 +29,24 @@ function json(res: ServerResponse, code: number, body: unknown): void {
 
 /** 注册审计路由，返回总 disposer（卸载全部路由）。 */
 export function registerAuditRoutes(webServer: RouteRegistrar, auditor: AuditorService): () => void {
+  // 静态面板页：从 lib/ 相对解析 src/client/index.html（发布时 files 包含 src/client）
+  let auditHtml = ''
+  try {
+    auditHtml = readFileSync(new URL('../src/client/index.html', import.meta.url), 'utf8')
+  } catch {
+    // 发布形态不含 src 时降级：返回占位
+    auditHtml = '<!doctype html><meta charset="utf-8"><title>event-auditor</title><p>panel page unavailable</p>'
+  }
+
   const disposers = [
+    webServer.register({
+      kind: 'exact',
+      path: '/audit',
+      handler: (_req: IncomingMessage, res: ServerResponse): void => {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+        res.end(auditHtml)
+      },
+    }),
     webServer.register({
       kind: 'exact',
       path: '/api/audit/events',
