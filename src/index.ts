@@ -16,6 +16,7 @@ import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-sett
 import z from '@deepseek-ai/schemastery'
 
 import { AuditorService } from './auditor.js'
+import { registerAuditCommand, type CommandsRegistrar } from './commands.js'
 import { ENHANCED_WATERFALL_EVENTS, EVENT_GROUPS, WATCHED_EVENTS } from './events.js'
 import { registerAuditRoutes, type RouteRegistrar } from './routes.js'
 
@@ -194,6 +195,15 @@ export function apply(ctx: Context, config?: Config): void {
       },
     },
   )
+
+  // /audit 会话命令（可选）：ctx.commands 动态注入，无该服务的 profile 不阻塞
+  ctx.inject(['commands'], (sctx) => {
+    const commands = (sctx as unknown as { commands: CommandsRegistrar }).commands
+    sctx.effect(
+      () => registerAuditCommand(commands, auditor),
+      'event-auditor: command',
+    )
+  })
 
   // headless dump：DSH_EVENT_AUDIT_DUMP=<path> 时进程退出前写快照
   const dumpPath = process.env.DSH_EVENT_AUDIT_DUMP
