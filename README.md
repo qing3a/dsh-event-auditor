@@ -16,20 +16,22 @@ Harness 事件流审计面板：观察事件类型、分发模式、计数与最
 ## 安装
 
 ```bash
-# 开发模式（需 Node >= 22 + pnpm）
-git clone https://github.com/your-handle/dsh-event-auditor.git
-cd dsh-event-auditor && pnpm install && pnpm build
-
-cd <path-to-deepseek-harness>
-dsh plugin --profile <profile> add link:$(pwd)/dsh-event-auditor
+# 生产安装（npm，agent 可直接执行）
+dsh plugin --profile <profile> add @qing3a/dsh-event-auditor
 dsh --profile <profile>
 # 打开 http://localhost:<port>/audit
+
+# 开发模式（需 Node >= 22 + pnpm）
+git clone https://github.com/qing3a/dsh-event-auditor.git
+cd dsh-event-auditor && pnpm install && pnpm build
+cd <path-to-deepseek-harness>
+dsh plugin --profile <profile> add link:$(pwd)/dsh-event-auditor
 ```
 
 ## 卸载
 
 ```bash
-dsh plugin --profile <profile> remove @dsh-external/dsh-event-auditor
+dsh plugin --profile <profile> remove @qing3a/dsh-event-auditor
 ```
 
 ## 配置
