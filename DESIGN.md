@@ -147,7 +147,13 @@ dsh --profile <your-profile>
 - 10 个 waterfall 事件签名逐条从源码确认（next 均无参）：`tools/pre-execute|execute|post-execute`、`agent/request`、`approval/request`、`fs/write-intent|edit-intent`、`system-prompt/assemble`、`agent/pre-step`、`llm/stream`
 - 插件加载 + 10 个 waterfall 监听器注册后，**DSH 完整启动、首页 200**——启动路径上的 waterfall 均正常透传，next() 纪律安全性验证通过
 - `/audit` 页面 200、`/api/audit/events` 200（捕获 57 次 `tools/change`）、reset 200
-- ⏳ **待验证**：waterfall 事件的**运行时捕获**（`tools/execute` 等在 agent 对话时才触发）——需要真实 LLM 对话（DEEPSEEK_API_KEY）或 mock-llm 链路，当前环境无 key 未触发
+
+✅ **v0.3 验证 + waterfall 运行时捕获（2026-08-14，关键突破）**：
+- **mock-llm 方案**（无需真实 API key）：`pnpm run mock:llm --port 8000 --api-key mock-key --sequence tool_call_success,success --repeat-last --tool-name bash --tool-arguments '{"command":"ls"}'` + `DEEPSEEK_BASE_URL=http://127.0.0.1:8000/v1 DEEPSEEK_API_KEY=mock-key pnpm dsh --profile headless "run the bash tool once"`
+- **验证结果**：agent 完整循环被捕获——`session/created → agent/created → agent/session-start → agent/inbox/inserted → agent/status → agent/inbox/claimed → system-prompt/assemble(wf) → agent/pre-step(wf) → agent/request(wf) → llm/stream(wf) → tools/pre-execute(wf) → tools/execute(wf) → tools/post-execute(wf) → tools/result`，**74 事件 / 12 waterfall 全部捕获**，agent 完整跑完工具循环（next() 透传零副作用实证）。这使本插件成为雷达里"运行时验证通过"的先例（此前 0 个）
+- **settings 热改**：`installSettingsSection(ctx, settingsNamespace('event-auditor'), Config, initial, {setSource, onChange})` 接入（master 源码签名；npm rc 版 dsh-settings 无 .d.ts，导出符号一致）；`ctx.inject(['webServer'], cb)` 可选注入（headless 无 webServer 时回调不执行，不阻塞加载）
+- **headless dump**：`DSH_EVENT_AUDIT_DUMP=<path>` 进程退出前写快照（无 webServer 场景的审计出口）
+- ⏳ **待办**：dsh.client 浏览器侧面板（v0.4，需 tsdown client 构建 + __DSH_BOOT__ 注入机制）——当前 `/audit` 静态页 + JSON API 已覆盖面板需求
 
 ⚠️ **重大教训——API 漂移**：npm rc 版（0.0.1-rc.1）`ctx.httpServer`/`HttpServerService` vs master 源码 `ctx.webServer`/`WebServer`。profile 从本地 workspace 链接时**运行 master 语义**。插件改为鸭子类型接口（`RouteRegistrar`）解耦类名，仅跟随服务名。遇到疑似漂移，先读实际运行版本的 `lib/types/`。
 
