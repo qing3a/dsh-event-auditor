@@ -35,6 +35,8 @@ export declare class AuditorService {
     /** 取快照。since 传 seq 时只返回增量记录。 */
     snapshot(since?: number): AuditSnapshot;
     reset(): void;
+    /** 同步写审计快照到文件（headless 场景，进程退出前调用）。 */
+    dumpToFile(path: string): void;
     /** 防御性序列化：大对象/循环引用/不可序列化值一律截断标记，不抛错。 */
     private snapshotArgs;
 }
