@@ -3,6 +3,8 @@
  * 职责：环形缓冲 + 按事件计数 + 快照导出。
  */
 
+import { writeFileSync } from 'node:fs'
+
 export interface AuditRecord {
   event: string
   at: number
@@ -75,6 +77,11 @@ export class AuditorService {
     this.counts.clear()
     this.byMode.clear()
     this.seq = 0
+  }
+
+  /** 同步写审计快照到文件（headless 场景，进程退出前调用）。 */
+  dumpToFile(path: string): void {
+    writeFileSync(path, JSON.stringify(this.snapshot(), null, 2))
   }
 
   /** 防御性序列化：大对象/循环引用/不可序列化值一律截断标记，不抛错。 */
