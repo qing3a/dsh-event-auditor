@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-external/dsh-event-auditor",
+  "name": "@qing3a/dsh-event-auditor",
   "version": "0.1.0",
   "description": "Harness 事件流审计面板：观察事件类型、分发模式、计数与最近事件，帮助插件作者理解 harness 内部发生了什么",
   "type": "module",
@@ -31,5 +31,18 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.0.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qing3a/dsh-event-auditor.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "plugin",
+    "audit",
+    "events",
+    "harness"
+  ]
 }
