@@ -1,0 +1,3 @@
+- insert:
+    - id: event-auditor
+      name: '@dsh-external/dsh-event-auditor'
