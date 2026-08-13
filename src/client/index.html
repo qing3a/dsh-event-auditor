@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>dsh-event-auditor 事件面板</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 1rem; }
+    header { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+    h1 { font-size: 1.2rem; }
+    #stats { display: flex; gap: 0.75rem; flex-wrap: wrap; margin: 0.5rem 0; }
+    #stats span { background: #00000014; border-radius: 6px; padding: 2px 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { border: 1px solid #00000022; padding: 4px 8px; text-align: left; }
+    th { position: sticky; top: 0; background: canvas; }
+    td.mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+    .mode { font-size: 0.7rem; padding: 1px 5px; border-radius: 4px; }
+    .emit { background: #1f8b4c33; }
+    .waterfall { background: #b8860b33; }
+    #pause { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>dsh-event-auditor</h1>
+    <button id="pause">⏸ 暂停刷新</button>
+    <button id="reset">清空</button>
+  </header>
+  <div id="stats"></div>
+  <table>
+    <thead>
+      <tr><th>seq</th><th>事件</th><th>模式</th><th>时间</th><th>参数摘要</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    // 最小前端：轮询 JSON 接口。纯 fetch + 无框架，避免 dsh.client 依赖。
+    const rows = document.getElementById('rows')
+    const stats = document.getElementById('stats')
+    const pauseBtn = document.getElementById('pause')
+    const resetBtn = document.getElementById('reset')
+    let paused = false
+    let lastSeq = 0
+    let timer
+
+    function fmtTime(ms) {
+      return new Date(ms).toLocaleTimeString()
+    }
+
+    function render(snap) {
+      stats.innerHTML = ''
+      for (const [k, v] of Object.entries(snap.counts)) {
+        const el = document.createElement('span')
+        el.textContent = `${k}: ${v}`
+        stats.appendChild(el)
+      }
+      for (const rec of snap.recent) {
+        const tr = document.createElement('tr')
+        const args = JSON.stringify(rec.args)
+        const summary = args.length > 120 ? args.slice(0, 120) + '…' : args
+        tr.innerHTML = `
+          <td class="mono">${rec.seq}</td>
+          <td class="mono">${rec.event}</td>
+          <td><span class="mode ${rec.mode}">${rec.mode}</span></td>
+          <td>${fmtTime(rec.at)}</td>
+          <td class="mono">${escapeHtml(summary)}</td>`
+        rows.prepend(tr)
+      }
+      lastSeq = snap.seq
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+    }
+
+    async function tick() {
+      try {
+        const res = await fetch(`/api/audit/events${lastSeq ? `?since=${lastSeq}` : ''}`)
+        const snap = await res.json()
+        render(snap)
+      } catch (err) {
+        console.error('audit fetch failed', err)
+      }
+    }
+
+    function schedule() {
+      clearInterval(timer)
+      timer = setInterval(() => { if (!paused) tick() }, 1000)
+    }
+
+    pauseBtn.onclick = () => {
+      paused = !paused
+      pauseBtn.textContent = paused ? '▶ 恢复刷新' : '⏸ 暂停刷新'
+    }
+    resetBtn.onclick = async () => {
+      await fetch('/api/audit/reset', { method: 'POST' })
+      rows.innerHTML = ''
+      stats.innerHTML = ''
+    }
+
+    tick()
+    schedule()
+  </script>
+</body>
+</html>
