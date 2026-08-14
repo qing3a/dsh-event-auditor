@@ -24,7 +24,7 @@ mock-llm（脚本化 LLM 响应）  ←   DSH headless profile（真实 agent �
 ```
 
 - **headless profile**：无 UI 的 agent 循环，从命令行直接喂 prompt
-- **mock-llm**：`@deepseek-ai/dsh-llm-mock-server`，可脚本化返回 `tool_call_success`（要求模型调用 bash 工具）→ 触发完整的 waterfall 链
+- **mock-llm**：`@deepseek-ai/dsh-llm-mock-server`，可脚本化返回 `tool_call_success`（要求模型调用平台 shell 工具）→ 触发完整的 waterfall 链
 - **DSH_EVENT_AUDIT_DUMP**：dsh-event-auditor 提供的环境变量，进程退出前把事件审计写盘
 
 ## 三、环境准备（一次性）
@@ -74,14 +74,25 @@ pnpm dsh plugin --profile headless add link:<你的插件绝对路径>
 
 ## 六、步骤三：启动 mock-llm
 
+> ⚠️ **平台边界（2026-08-14 实测，读 `packages/bundle/base/cordis.patch.yml`）**：DSH 按平台
+> 启停 shell——Windows 上 `tool-bash disabled: !!js process.platform === 'win32'`（bash 未注册），
+> 正确工具是 **pwsh**；非 Windows 才是 bash。mock 触发工具必须平台感知，否则
+> UNKNOWN_TOOL/INVALID_ARGS 空转（waterfall 链照走但工具从未真实执行）。
+> 工具参数必须含 `description`（tool-bash/tool-pwsh 的校验都要求 command + description）。
+
 ```sh
+# Windows
 pnpm run mock:llm --port 8000 --api-key mock-key \
   --sequence tool_call_success,success --repeat-last \
-  --tool-name bash --tool-arguments '{"command":"ls"}'
+  --tool-name pwsh --tool-arguments '{"command":"echo ok","description":"verify tool execution"}'
+# 非 Windows
+pnpm run mock:llm --port 8000 --api-key mock-key \
+  --sequence tool_call_success,success --repeat-last \
+  --tool-name bash --tool-arguments '{"command":"echo ok","description":"verify tool execution"}'
 ```
 
 要点：
-- `tool_call_success` 让第一个请求返回"调用 bash 工具"——触发 `tools/pre-execute → execute → post-execute` 全链
+- `tool_call_success` 让第一个请求返回"调用平台 shell 工具"——触发 `tools/pre-execute → execute → post-execute` 全链
 - 第二个 `success` 让工具结果之后模型正常回复；`--repeat-last` 保证序列耗尽后仍复用最后一项
 - ⚠️ 不要用 `pnpm run mock:llm -- --port ...`（多一个 `--` 会被当成位置参数报错）
 
@@ -91,10 +102,13 @@ pnpm run mock:llm --port 8000 --api-key mock-key \
 DEEPSEEK_BASE_URL=http://127.0.0.1:8000/v1 \
 DEEPSEEK_API_KEY=mock-key \
 DSH_EVENT_AUDIT_DUMP=/tmp/audit.json \
-pnpm dsh --profile headless "run the bash tool once and report"
+pnpm dsh --profile headless "run the pwsh tool once and report"   # Windows；非 Windows 用 bash
 ```
 
-正常输出 `mock response recovered` 表示 agent 完整跑完一轮。
+> ⚠️ **`mock response recovered` ≠ 工具执行成功**（2026-08-14 实测教训）：它只是 mock 的
+> 成功回复文本。UNKNOWN_TOOL/INVALID_ARGS 场景下 agent 照样跑完并输出 recovered——**必须查
+> 审计 dump 的 `tools/result` payload**：`isError:false` 才是真实执行成功；
+> `code:UNKNOWN_TOOL`（目标工具未注册）或 `code:INVALID_ARGS` 都是空转。
 
 ## 八、步骤五：分析验证结果（什么算"通过"）
 
